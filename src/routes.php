@@ -52,22 +52,24 @@ $app->post("/auth/", function (Request $request, Response $response){
     if($stmt->execute($data)){
         $result = $stmt->fetch();
         
-        $result['namaLembaga'] = "";
-        
-        if($result['userLevel'] == '1'){
-            $sql  = "SELECT nama FROM dplega_000_lembaga WHERE noRegistrasi = '".$result['noRegistrasi']."'";
-            $stmt = $this->db->prepare($sql);
-            $stmt->execute();
-            $res  = $stmt->fetch();
-
-            if($res['nama'] == ''){
-                $sql  = "SELECT nama FROM dplega_000_lembaga_temp WHERE noRegistrasi = '".$result['noRegistrasi']."'";
+        if($result['nama'] != ''){
+            $result['namaLembaga'] = "";
+            
+            if($result['userLevel'] == '1'){
+                $sql  = "SELECT nama FROM dplega_000_lembaga WHERE noRegistrasi = '".$result['noRegistrasi']."'";
                 $stmt = $this->db->prepare($sql);
                 $stmt->execute();
                 $res  = $stmt->fetch();
-            }
 
-            $result['namaLembaga'] = $res['nama'];
+                if($res['nama'] == ''){
+                    $sql  = "SELECT nama FROM dplega_000_lembaga_temp WHERE noRegistrasi = '".$result['noRegistrasi']."'";
+                    $stmt = $this->db->prepare($sql);
+                    $stmt->execute();
+                    $res  = $stmt->fetch();
+                }
+
+                $result['namaLembaga'] = $res['nama'];
+            }
         }
 
 
@@ -1008,89 +1010,263 @@ $app->post("/insert/lembaga/revisi/{noRegistrasi}", function (Request $request, 
     return $response->withJson(["status" => "failed", "data" => $data, "noReg" => $noRegistrasi], 200);
 });
 
-$app->post("/insert/lembaga/sejarah/{noRegistrasi}", function (Request $request, Response $response, $args){
-    $noRegistrasi  = $args["noRegistrasi"];
+
+// MANAGE KELEMBAGAAN
+// ------------
+$app->post("/insert/lembaga/", function (Request $request, Response $response, $args){
     $data = $request->getParsedBody();
 
-    // checking
-    $dumbTable = '';
-    $status    = '1';
-    $sql  = "SELECT noRegistrasi FROM dplega_000_lembaga WHERE noRegistrasi = '".$noRegistrasi."'";
+    // for jabar
+    $data["kodeProvinsi"] = '8';
+
+    // translating
+
+    $sql =
+    "   SELECT 
+            (SELECT kodeWilayah FROM dplega_101_wilayah WHERE idData  = '".$data['kodeWilayah']."' LIMIT 1) as idWilayah,
+            (SELECT kodeKecamatan FROM dplega_102_kecamatan WHERE idData  = '".$data['kodeKecamatan']."' LIMIT 1) as idKecamatan,
+            (SELECT kodeKelurahan FROM dplega_103_kelurahan WHERE idData  = '".$data['kodeKelurahan']."' LIMIT 1) as idKelurahan
+    ";
+
+    $stmt = $this->db->prepare($sql);
+    $stmt->execute();
+    $res  = $stmt->fetch();
+
+    $res['idProvinsi'] = '32';
+
+    // checking noRegistrasi
+	$idTemp = $res["idProvinsi"].$res["idWilayah"].$res["idKecamatan"];
+
+    $sql =
+    "
+        SELECT noRegistrasi
+        FROM dplega_000_lembaga_temp
+        WHERE 
+            noRegistrasi LIKE '".$idTemp."%'
+        ORDER BY noRegistrasi DESC LIMIT 1
+    ";
+
     $stmt = $this->db->prepare($sql);
     $stmt->execute();
     $res  = $stmt->fetch();
 
     if($res['noRegistrasi'] == ''){
-        $dumbTable = '_temp';
-        $status = 0;
+        $idTemp = $idTemp.'00001';
+    }else{
+        $idTempB   = substr($res["noRegistrasi"],6,5);
+        $idTempC   = $idTempB + 1;
+        $str 	   = strlen($idTempC);
+        switch ($str) {
+            case 1:
+                $idTemp = $idTemp.'0000'.$idTempC;
+                break;
+            case 2:
+                $idTemp = $idTemp.'000'.$idTempC;
+                break;
+            case 3:
+                $idTemp = $idTemp.'00'.$idTempC;
+                break;
+            case 4:
+                $idTemp = $idTemp.'0'.$idTempC;
+                break;
+            default:
+                $idTemp = $idTemp.$idTempC;
+                break;
+        }
     }
-    
-    $sql = "INSERT INTO dplega_001_sejarah".$dumbTable." (
-            noRegistrasi, 
-            deskripsi, 
-            tanggalDidirikan,
-            kepemilikan,
-            statusTanah,
-            statusSertifikasi,
-            luasTanah,
-            satuanLuasTanah,
-            luasBangunan,
-            satuanLuasBangunan,
-            kondisiBangunan,
-            JumlahBangunan,
-            statusSarana,
-            statusStrukturKepengurusan,
-            #urlGambarStrukturKepengurusan,
-            bahasaPengantar,
-            statusSensus,
-            statusBantuanPemerintah,
-            kondisiGeografis,
-            potensiWilayah,
-            jenisWilayah,
-            catatanLain,
-            createdBy, createdDate) VALUES
+   
+    //create new lembaga
+    $sql = "INSERT INTO dplega_000_lembaga_temp 
         (
-            :noRegistrasi,
-            :deskripsi,
-            :tanggalDidirikan,
-            :kepemilikan,
-            :statusTanah,
-            :statusSertifikasi,
-            :luasTanah,
-            :satuanLuasTanah,
-            :luasBangunan,
-            :satuanLuasBangunan,
-            :kondisiBangunan,
-            :JumlahBangunan,
-            :statusSarana,
-            :statusStrukturKepengurusan,
-            #:urlGambarStrukturKepengurusan,
-            :bahasaPengantar,
-            :statusSensus,
-            :statusBantuanPemerintah,
-            :kondisiGeografis,
-            :potensiWilayah,
-            :jenisWilayah,
-            :catatanLain,
-            :username,
+            noRegistrasi,
+            nama,
+            alamat,
+            noRt,
+            noRw,
+            kodeKelurahan,
+            kodeKecamatan,
+            kodeWilayah,
+            kodeProvinsi,
+            langitude,
+            latitude,
+            noTelp,
+            email,
+            mediaSosial,
+            kodeBentukLembaga,
+            kodeBidangGerak,
+            jumlahPengurus,
+            noNpwp,
+            visiLembaga,
+            misiLembaga,
+            organisasiAfiliasi,
+            catatanLain,
+            createdBy, createdDate
+        ) 
+            VALUES
+        (
+            '".$idTemp."',
+            '".$data['nama']."',
+            '".$data['alamat_']."',
+            '".$data['noRt']."',
+            '".$data['noRw']."',
+            '".$data['kodeKelurahan']."',
+            '".$data['kodeKecamatan']."',
+            '".$data['kodeWilayah']."',
+            '".$data['kodeProvinsi']."',
+            '".$data['langitude']."',
+            '".$data['latitude']."',
+            '".$data['telp']."',
+            '".$data['email']."',
+            '".$data['medsos']."',
+            '".$data['kodeBentukLembaga']."',
+            '".$data['bidangGerak']."',
+            '".$data['jumlahPengurus']."',
+            '".$data['npwp']."',
+            '".$data['visi']."',
+            '".$data['misi']."',
+            '".$data['afiliasi']."',
+            '".$data['catatan']."',
+            '".$data['username']."',
             NOW()
         )
     ";
 
     $stmt = $this->db->prepare($sql);
-    if($stmt->execute($data))
+    if($stmt->execute()){
+
+        // uploading avatar
+        $dumbQuery = "";
+        $dumbValue = "";
+        $imageStat = 0;
+
+        // NEW LEMBAGA NO NEED TO UPLOAD LOGO AT FIRST
+        // $uploadedFiles = $request->getUploadedFiles();
+        // // handle single input with single file upload
+        // $uploadedFile = $uploadedFiles['file'];
+        // if ($uploadedFile->getError() === UPLOAD_ERR_OK) {
+            
+        //     $extension = pathinfo($uploadedFile->getClientFilename(), PATHINFO_EXTENSION);
+            
+        //     // ubah nama file dengan id buku
+        //     $filename = sprintf('%s.%0.8s', $idTemp.'_logo', $extension);
+            
+        //     $directory = $this->get('settings')['logo_directory'];
+        //     $uploadedFile->moveTo($directory . DIRECTORY_SEPARATOR . $filename);
+
+        //     // simpan nama file ke database
+        //     $sql = "UPDATE dplega_910_user SET urlGambarLogo=:urlGambarLogo WHERE noRegistrasi=:noRegistrasi";
+        //     $stmt = $this->db->prepare($sql);
+        //     $params = [
+        //         ":noRegistrasi" => $idTemp,
+        //         ":urlGambarLogo" => $filename
+        //     ];
+            
+        //     if($stmt->execute($params)){
+        //         $imageStat = 1;
+        //     }
+        // }
+
+        // // create user
+        // if($imageStat == 1 && $filename != ""){
+        //     $dumbQuery = "urlGambar,";
+        //     $dumbValue = "'".$filename."',";
+        // }
+
+        $usernameTemp = strtolower(preg_replace('/\s+/', '', $idTemp.$data['nama']));
+		if(strlen($usernameTemp) > 20){ $usernameTemp = substr($usernameTemp, 0, 19); }
+
+        $sql = 
+        "	INSERT INTO dplega_910_user
+            (
+                noRegistrasi,
+                nama,
+                jabatan,
+                alamat,
+                noRt,
+                noRw,
+                kodeKelurahan,
+                kodeKecamatan,
+                kodeWilayah,
+                kodeProvinsi,
+                noTelp,
+                email,
+                username,
+                password,
+                userLevel,
+                statusActive,
+                ".$dumbQuery."
+                createdBy, createdDate
+            )
+            VALUES
+            (
+                '".$idTemp."',
+                '".$data['nama']."',
+                'Penanggung jawab Lembaga',
+                '".$data['alamat']."',
+                '".$data['rt']."',
+                '".$data['rw']."',
+                '".$data['kodeKelurahan']."',
+                '".$data['kodeKecamatan']."',
+                '".$data['kodeWilayah']."',
+                '".$data['kodeProvinsi']."',
+                '".$data['telp']."',
+                '".$data['email']."',
+                '".$usernameTemp."',
+                md5('jabarprov'),
+                '1',
+                '1',
+                ".$dumbValue."
+                '".$data['username']."', NOW()
+            )
+        ";
+
+        $stmt = $this->db->prepare($sql);
+        if($stmt->execute()){
+            //access list
+            $sql = 
+            "	INSERT INTO dplega_911_useraccess
+                (
+                    username,
+                    idApps,
+                    module,
+                    lihat,
+                    tambah,
+                    ubah,
+                    hapus,
+                    createdBy, createdDate
+                )
+                VALUES
+                (
+                    '".$usernameTemp."',
+                    '1',
+                    'kelembagaan',
+                    '1',
+                    '0',
+                    '1',
+                    '0',
+                    'TESTSESSION', NOW()
+                );
+            ";
+
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute();
+        }
+
        return $response->withJson(["status" => "success", "data" => "1"], 200);
-    
-    return $response->withJson(["status" => "failed", "data" => $data, "noReg" => $noRegistrasi], 200);
+    }
+
+    return $response->withJson(["status" => "failed", "data" => $data, "noReg" => $idTemp, "sql" => $sql], 200);
 });
 
-$app->post("/insert/lembaga/kepengurusan/{noRegistrasi}", function (Request $request, Response $response, $args){
-    $noRegistrasi  = $args["noRegistrasi"];
-    $data = $request->getParsedBody();
+$app->post('/upload/lembaga/logo/', function(Request $request, Response $response, $args) {
+    
+    $uploadedFiles = $request->getUploadedFiles();
+    $credential    = $request->getParsedBody();
+
+    $noRegistrasi = $credential["noRegistrasi"];
 
     // checking
     $dumbTable = '';
-    $status    = '1';
     $sql  = "SELECT noRegistrasi FROM dplega_000_lembaga WHERE noRegistrasi = '".$noRegistrasi."'";
     $stmt = $this->db->prepare($sql);
     $stmt->execute();
@@ -1098,10 +1274,315 @@ $app->post("/insert/lembaga/kepengurusan/{noRegistrasi}", function (Request $req
 
     if($res['noRegistrasi'] == ''){
         $dumbTable = '_temp';
-        $status = 0;
+    }
+
+    // handle single input with single file upload
+    $uploadedFile = $uploadedFiles['file'];
+    if ($uploadedFile->getError() === UPLOAD_ERR_OK) {
+        
+        $extension = pathinfo($uploadedFile->getClientFilename(), PATHINFO_EXTENSION);
+        
+        // ubah nama file dengan id buku
+        $filename = sprintf('%s.%0.8s', $credential["noRegistrasi"].'_logo', $extension);
+        
+        $directory = $this->get('settings')['logo_directory'];
+        $uploadedFile->moveTo($directory . DIRECTORY_SEPARATOR . $filename);
+
+        // simpan nama file ke database
+        $sql = "UPDATE dplega_000_lembaga".$dumbTable." SET urlGambarLogo=:urlGambarLogo WHERE noRegistrasi=:noRegistrasi";
+        $stmt = $this->db->prepare($sql);
+        $params = [
+            ":noRegistrasi" => $credential["noRegistrasi"],
+            ":urlGambarLogo" => $filename
+        ];
+        
+        if($stmt->execute($params)){
+            // ambil base url dan gabungkan dengan file name untuk membentuk URL file
+            // $url = $request->getUri()->getBaseUrl().$filename;
+            return $response->withJson(["status" => "success", "filename" => $filename], 200);
+        }
+        
+    }
+
+    return $response->withJson(["status" => "failed", "filename" => "0", "data"=> $credential], 200);
+});
+
+// ------------
+$app->post("/update/lembaga/", function (Request $request, Response $response, $args){
+    $data = $request->getParsedBody();
+	$noRegistrasi = $data["noRegistrasi"];
+
+    // checking
+    $dumbTable = '';
+    $sql  = "SELECT noRegistrasi FROM dplega_000_lembaga WHERE noRegistrasi = '".$noRegistrasi."'";
+    $stmt = $this->db->prepare($sql);
+    $stmt->execute();
+    $res  = $stmt->fetch();
+
+    if($res['noRegistrasi'] == ''){
+        $dumbTable = '_temp';
     }
     
-    $sql = "INSERT INTO dplega_002_kepengurusan".$dumbTable." (
+    //update lembaga
+    $sql = "
+        UPDATE dplega_000_lembaga".$dumbTable."
+        SET 
+            `nama`='".$data["nama"]."', 
+            `alamat`='".$data["alamat_"]."', 
+            `noRt`='".$data["noRt"]."', 
+            `noRw`='".$data["noRw"]."', 
+            `kodeWilayah`='".$data["kodeWilayah"]."', 
+            `kodeKelurahan`='".$data["kodeKelurahan"]."', 
+            `kodeKecamatan`='".$data["kodeKecamatan"]."', 
+            `noTelp`='".$data["telp"]."', 
+            `email`='".$data["email"]."',
+            `langitude`='".$data["langitude"]."',
+            `latitude`='".$data["latitude"]."',
+            `mediaSosial`='".$data["mediaSosial"]."',
+            `kodeBidangGerak`='".$data["kodeBidangGerak"]."',
+            `jumlahPengurus`='".$data["jumlahPengurus"]."',
+            `noNpwp`='".$data["noNpwp"]."',
+            `visiLembaga`='".$data["visiLembaga"]."',
+            `misiLembaga`='".$data["misiLembaga"]."',
+            `organisasiAfiliasi`='".$data["organisasiAfiliasi"]."',
+            `catatanLain`='".$data["catatanLain"]."',
+            `changedBy`='".$data["username"]."',
+            `changedDate`= NOW()
+        WHERE noRegistrasi='".$data["noRegistrasi"]."'";
+    $stmt = $this->db->prepare($sql);
+
+    if($stmt->execute()){
+        return $response->withJson(["status" => "success", "data" => "1"], 200);
+    }
+
+    return $response->withJson(["status" => "failed", "data" => $data, "sql" => $noRegistrasi], 200);
+});
+
+$app->post('/update/lembaga/legalitas', function(Request $request, Response $response, $args) {
+    
+    $uploadedFiles = $request->getUploadedFiles();
+    $data     = $request->getParsedBody();
+
+    $filename = $data['urlFile'];
+    $uploadStatus = "No file selected";
+
+    // handle single input with single file upload
+    if($uploadedFiles){
+        $uploadedFile = $uploadedFiles['file'];
+        if ($uploadedFile->getError() === UPLOAD_ERR_OK) {
+            
+            $extension = pathinfo($uploadedFile->getClientFilename(), PATHINFO_EXTENSION);
+            
+            // ubah nama file 
+            $filename = sprintf('%s.%0.8s', $data["noRegistrasi"].'_'.$data["kodePersyaratan"].'_legalitas', $extension);
+            
+            $directory = $this->get('settings')['legalitas_directory'];
+            $uploadedFile->moveTo($directory . DIRECTORY_SEPARATOR . $filename);
+            $uploadStatus = "File uploaded";
+        }else{
+            $uploadStatus = "File error";
+        }
+    }
+
+    // checking
+    $dumbTable = '';
+    $sql  = "SELECT noRegistrasi FROM dplega_000_lembaga WHERE noRegistrasi = '".$data['noRegistrasi']."'";
+    $stmt = $this->db->prepare($sql);
+    $stmt->execute();
+    $res  = $stmt->fetch();
+
+    if($res['noRegistrasi'] == ''){
+        $dumbTable = '_temp';
+    }
+    
+    //checking existing data
+    $sql  = "SELECT noRegistrasi FROM dplega_009_legalitas".$dumbTable." WHERE noRegistrasi = '".$data['noRegistrasi']."'";
+    $stmt = $this->db->prepare($sql);
+    $stmt->execute();
+    $res  = $stmt->fetch();
+
+    if($res['noRegistrasi'] == ''){
+
+        // simpan nama file ke database
+        $sql = "INSERT INTO dplega_009_legalitas".$dumbTable." (
+            noRegistrasi,
+            kodePersyaratan,
+            noLegalitas,
+            tanggalLegalitas,
+            urlFile,
+            statusVerifikasi,
+            createdBy,
+            createdDate
+        ) VALUES (
+            '".$data["noRegistrasi"]."',
+            '".$data["kodePersyaratan"]."',
+            '".$data["noLegalitas"]."',
+            '".$data["tanggalLegalitas"]."',
+            '".$filename."',
+            '0',
+            '".$data["username"]."',
+            NOW()
+        ) 
+        ";
+    } else {
+        $sql = "
+        UPDATE dplega_009_legalitas".$dumbTable."
+        SET 
+            `noLegalitas`='".$data["noLegalitas"]."',
+            `tanggalLegalitas`='".$data["tanggalLegalitas"]."',
+            `urlFile`='".$filename."',
+            `statusVerifikasi`='0',
+            `changedBy`='".$data["username"]."',
+            `changedDate`= NOW()
+        WHERE noRegistrasi='".$data["noRegistrasi"]."' AND kodePersyaratan='".$data["kodePersyaratan"]."'";
+    }
+
+    $stmt = $this->db->prepare($sql);
+    if($stmt->execute()){
+        // ambil base url dan gabungkan dengan file name untuk membentuk URL file
+        return $response->withJson(["status" => "success", "upload" => $uploadStatus], 200);
+    }
+    
+    return $response->withJson(["status" => "failed", "upload" => $uploadStatus], 200);
+});
+
+$app->post("/update/lembaga/sejarah", function (Request $request, Response $response, $args){
+    $data = $request->getParsedBody();
+	$noRegistrasi = $data["noRegistrasi"];
+
+    // checking
+    $dumbTable = '';
+    $sql  = "SELECT noRegistrasi FROM dplega_000_lembaga WHERE noRegistrasi = '".$noRegistrasi."'";
+    $stmt = $this->db->prepare($sql);
+    $stmt->execute();
+    $res  = $stmt->fetch();
+
+    if($res['noRegistrasi'] == ''){
+        $dumbTable = '_temp';
+    }
+
+    //checking existing data
+    $sql  = "SELECT noRegistrasi FROM dplega_001_sejarah".$dumbTable." WHERE noRegistrasi = '".$noRegistrasi."'";
+    $stmt = $this->db->prepare($sql);
+    $stmt->execute();
+    $res  = $stmt->fetch();
+
+    if($res['noRegistrasi'] == ''){
+
+        //insert sejarah
+        $sql = "INSERT INTO dplega_001_sejarah".$dumbTable." (
+                noRegistrasi, 
+                deskripsi, 
+                tanggalDidirikan,
+                kepemilikan,
+                statusTanah,
+                statusSertifikasi,
+                luasTanah,
+                satuanLuasTanah,
+                luasBangunan,
+                satuanLuasBangunan,
+                kondisiBangunan,
+                jumlahBangunan,
+                statusSarana,
+                statusStrukturKepengurusan,
+                bahasaPengantar,
+                statusSensus,
+                statusBantuanPemerintah,
+                kondisiGeografis,
+                potensiWilayah,
+                jenisWilayah,
+                catatanLain,
+                createdBy, createdDate) VALUES
+            (
+                '".$data["noRegistrasi"]."',
+                '".$data["deskripsi"]."',
+                '".$data["tanggalDidirikan"]."',
+                '".$data["kepemilikan"]."',
+                '".$data["statusTanah"]."',
+                '".$data["statusSertifikasi"]."',
+                '".$data["luasTanah"]."',
+                '".$data["satuanLuasTanah"]."',
+                '".$data["luasBangunan"]."',
+                '".$data["satuanLuasBangunan"]."',
+                '".$data["kondisiBangunan"]."',
+                '".$data["JumlahBangunan"]."',
+                '".$data["statusSarana"]."',
+                '".$data["statusStrukturKepengurusan"]."',
+                '".$data["bahasaPengantar"]."',
+                '".$data["statusSensus"]."',
+                '".$data["statusBantuanPemerintah"]."',
+                '".$data["kondisiGeografis"]."',
+                '".$data["potensiWilayah"]."',
+                '".$data["jenisWilayah"]."',
+                '".$data["catatanLain"]."',
+                '".$data["username"]."',
+                NOW()
+            )
+        ";
+    } else {
+    //update sejarah
+    $sql = "
+        UPDATE dplega_001_sejarah".$dumbTable."
+        SET 
+            `deskripsi`= '".$data["deskripsi"]."', 
+            `tanggalDidirikan`= '".$data["tanggalDidirikan"]."',
+            `kepemilikan`= '".$data["kepemilikan"]."',
+            `statusTanah`= '".$data["statusTanah"]."',
+            `statusSertifikasi`= '".$data["statusSertifikasi"]."',
+            `luasTanah`= '".$data["luasTanah"]."',
+            `satuanLuasTanah`= '".$data["atuanLuasTanah"]."',
+            `luasBangunan`= '".$data["luasBangunan"]."',
+            `satuanLuasBangunan`= '".$data["satuanLuasBangunan"]."',
+            `kondisiBangunan`= '".$data["kondisiBangunan"]."',
+            `jumlahBangunan`= '".$data["jumlahBangunan"]."',
+            `statusSarana`= '".$data["statusSarana"]."',
+            `statusStrukturKepengurusan`= '".$data["statusStrukturKepengurusan"]."',
+            `bahasaPengantar`= '".$data["bahasaPengantar"]."',
+            `statusSensus`= '".$data["statusSensus"]."',
+            `statusBantuanPemerintah`= '".$data["statusBantuanPemerintah"]."',
+            `kondisiGeografis`= '".$data["kondisiGeografis"]."',
+            `potensiWilayah`= '".$data["potensiWilayah"]."',
+            `jenisWilayah`= '".$data["jenisWilayah"]."',
+            `catatanLain`= '".$data["catatanLain"]."',
+            `changedBy`= '".$data["username"]."',
+            `changedDate`= NOW()
+        WHERE noRegistrasi= '".$data["noRegistrasi"]."'";
+    }
+
+    $stmt = $this->db->prepare($sql);
+
+    if($stmt->execute()){
+        return $response->withJson(["status" => "success", "data" => "1"], 200);
+    }
+
+    return $response->withJson(["status" => "failed", "data" => $data, "noReg" => $idTemp], 200);
+});
+
+$app->post("/update/lembaga/kepengurusan", function (Request $request, Response $response, $args){
+    $data = $request->getParsedBody();
+	$noRegistrasi = $data["noRegistrasi"];
+
+    // checking
+    $dumbTable = '';
+    $sql  = "SELECT noRegistrasi FROM dplega_000_lembaga WHERE noRegistrasi = '".$noRegistrasi."'";
+    $stmt = $this->db->prepare($sql);
+    $stmt->execute();
+    $res  = $stmt->fetch();
+
+    if($res['noRegistrasi'] == ''){
+        $dumbTable = '_temp';
+    }
+
+    //checking existing data
+    $sql  = "SELECT noRegistrasi FROM dplega_002_kepengurusan".$dumbTable." WHERE noRegistrasi = '".$noRegistrasi."'";
+    $stmt = $this->db->prepare($sql);
+    $stmt->execute();
+    $res  = $stmt->fetch();
+
+    if($res['noRegistrasi'] == ''){
+
+        //insert kepengurusan
+        $sql = "INSERT INTO dplega_002_kepengurusan".$dumbTable." (
             noRegistrasi,
             penanggungJawab,
             jabatan,
@@ -1124,45 +1605,73 @@ $app->post("/insert/lembaga/kepengurusan/{noRegistrasi}", function (Request $req
             catatan,
             createdBy, createdDate) VALUES
         (
-            :noRegistrasi,
-            :penanggungJawab,
-            :jabatan,
-            :alamat,
-            :noRt,
-            :noRw,
-            :kodeKelurahan,
-            :kodeKecamatan,
-            :kodeWilayah,
-            :kodeProvinsi,
-            :noTelp,
-            :kewarganegaraan,
-            :tempatLahir,
-            :tanggalLahir,
-            :jenisKelamin,
-            :agama,
-            :jabatanLain,
-            :pendidikan,
-            :kompetensi,
-            :catatan,
-            :username,
+            '".$data["noRegistrasi"]."',
+            '".$data["penanggungJawab"]."',
+            '".$data["jabatan"]."',
+            '".$data["alamat"]."',
+            '".$data["noRt"]."',
+            '".$data["noRw"]."',
+            '".$data["kodeKelurahan"]."',
+            '".$data["kodeKecamatan"]."',
+            '".$data["kodeWilayah"]."',
+            '".$data["kodeProvinsi"]."',
+            '".$data["noTelp"]."',
+            '".$data["kewarganegaraan"]."',
+            '".$data["tempatLahir"]."',
+            '".$data["tanggalLahir"]."',
+            '".$data["jenisKelamin"]."',
+            '".$data["agama"]."',
+            '".$data["jabatanLain"]."',
+            '".$data["pendidikan"]."',
+            '".$data["kompetensi"]."',
+            '".$data["catatan"]."',
+            '".$data["username"]."',
             NOW()
         )
-    ";
+        ";
+    } else {
+    //update sejarah
+    $sql = "
+        UPDATE dplega_002_kepengurusan".$dumbTable."
+        SET 
+            `penanggungJawab`='".$data["penanggungJawab"]."', 
+            `jabatan`='".$data["jabatan"]."',
+            `alamat`='".$data["alamat"]."',
+            `noRt`='".$data["noRt"]."',
+            `noRw`='".$data["noRw"]."',
+            `kodeKelurahan`='".$data["kodeKelurahan"]."',
+            `kodeKecamatan`='".$data["kodeKecamatan"]."',
+            `kodeWilayah`='".$data["kodeWilayah"]."',
+            `noTelp`='".$data["noTelp"]."',
+            `kewarganegaraan`='".$data["kewarganegaraan"]."',
+            `tempatLahir`='".$data["tempatLahir"]."',
+            `tanggalLahir`='".$data["tanggalLahir"]."',
+            `jenisKelamin`='".$data["jenisKelamin"]."',
+            `agama`='".$data["agama"]."',
+            `jabatanLain`='".$data["jabatanLain"]."',
+            `pendidikan`='".$data["pendidikan"]."',
+            `kompetensi`='".$data["kompetensi"]."',
+            `catatan`='".$data["catatan"]."',
+            `changedBy`='".$data["username"]."',
+            `changedDate`= NOW()
+        WHERE noRegistrasi='".$data["noRegistrasi"]."'";
+    }
 
     $stmt = $this->db->prepare($sql);
-    if($stmt->execute($data))
-       return $response->withJson(["status" => "success", "data" => "1"], 200);
-    
-    return $response->withJson(["status" => "failed", "data" => $data, "noReg" => $noRegistrasi], 200);
+
+    if($stmt->execute()){
+        return $response->withJson(["status" => "success", "data" => "1"], 200);
+    }
+
+    return $response->withJson(["status" => "failed", "data" => $data, "noReg" => $idTemp], 200);
 });
 
-$app->post("/insert/lembaga/usaha/{noRegistrasi}", function (Request $request, Response $response, $args){
-    $noRegistrasi  = $args["noRegistrasi"];
+$app->post("/update/lembaga/usaha", function (Request $request, Response $response, $args){
     $data = $request->getParsedBody();
+	$noRegistrasi = $data["noRegistrasi"];
 
     // checking
     $dumbTable = '';
-    $status    = '1';
     $sql  = "SELECT noRegistrasi FROM dplega_000_lembaga WHERE noRegistrasi = '".$noRegistrasi."'";
     $stmt = $this->db->prepare($sql);
     $stmt->execute();
@@ -1170,32 +1679,56 @@ $app->post("/insert/lembaga/usaha/{noRegistrasi}", function (Request $request, R
 
     if($res['noRegistrasi'] == ''){
         $dumbTable = '_temp';
-        $status = 0;
     }
-    
-    $sql = "INSERT INTO dplega_003_usaha".$dumbTable." (noRegistrasi, namaUsaha, jenisUsaha, detailUsaha, jumlahPekerja, catatan, createdBy, createdDate) VALUES
+
+    //checking existing data
+    $sql  = "SELECT noRegistrasi FROM dplega_003_usaha".$dumbTable." WHERE noRegistrasi = '".$noRegistrasi."'";
+    $stmt = $this->db->prepare($sql);
+    $stmt->execute();
+    $res  = $stmt->fetch();
+
+    if($res['noRegistrasi'] == ''){
+
+        //insert usaha
+       $sql = "INSERT INTO dplega_003_usaha".$dumbTable." (noRegistrasi, namaUsaha, jenisUsaha, detailUsaha, jumlahPekerja, catatan, createdBy, createdDate) VALUES
         (
-            :noRegistrasi,
-            :namaUsaha,
-            :jenisUsaha,
-            :detailUsaha,
-            :jumlahPekerja,
-            :catatan,
-            :username,
+            '".$data["noRegistrasi"]."',
+            '".$data["namaUsaha"]."',
+            '".$data["jenisUsaha"]."',
+            '".$data["detailUsaha"]."',
+            '".$data["jumlahPekerja"]."',
+            '".$data["catatan"]."',
+            '".$data["username"]."',
             NOW()
         )
-    ";
+        ";
+    } else {
+    //update sejarah
+    $sql = "
+        UPDATE dplega_003_usaha".$dumbTable."
+        SET 
+            `namaUsaha`= '".$data["namaUsaha"]."', 
+            `jenisUsaha`= '".$data["jenisUsaha"]."',
+            `detailUsaha`= '".$data["detailUsaha"]."',
+            `jumlahPekerja`= '".$data["jumlahPekerja"]."',
+            `catatan`= '".$data["catatan"]."',
+            `changedBy`= '".$data["username"]."',
+            `changedDate`= NOW()
+        WHERE noRegistrasi='".$data["noRegistrasi"]."'";
+    }
 
     $stmt = $this->db->prepare($sql);
-    if($stmt->execute($data))
-       return $response->withJson(["status" => "success", "data" => "1"], 200);
-    
-    return $response->withJson(["status" => "failed", "data" => $data, "noReg" => $noRegistrasi], 200);
+
+    if($stmt->execute()){
+        return $response->withJson(["status" => "success", "data" => "1"], 200);
+    }
+
+    return $response->withJson(["status" => "failed", "data" => $data, "noReg" => $idTemp], 200);
 });
 
-$app->post("/insert/lembaga/prestasi/{noRegistrasi}", function (Request $request, Response $response, $args){
-    $noRegistrasi  = $args["noRegistrasi"];
+$app->post("/update/lembaga/prestasi", function (Request $request, Response $response, $args){
     $data = $request->getParsedBody();
+    $noRegistrasi  = $data["noRegistrasi"];
 
     // checking
     $dumbTable = '';
@@ -1212,9 +1745,9 @@ $app->post("/insert/lembaga/prestasi/{noRegistrasi}", function (Request $request
     
     $sql = "INSERT INTO dplega_006_prestasi".$dumbTable." (noRegistrasi, deskripsi, createdBy, createdDate) VALUES
         (
-            :noRegistrasi,
-            :deskripsi,
-            :username,
+            '".$data["noRegistrasi"]."',
+            '".$data["deskripsi"]."',
+            '".$data["username"]."',
             NOW()
         )
     ";
@@ -1226,9 +1759,9 @@ $app->post("/insert/lembaga/prestasi/{noRegistrasi}", function (Request $request
     return $response->withJson(["status" => "failed", "data" => $data, "noReg" => $noRegistrasi], 200);
 });
 
-$app->post("/insert/lembaga/koleksi/{noRegistrasi}", function (Request $request, Response $response, $args){
-    $noRegistrasi  = $args["noRegistrasi"];
+$app->post("/update/lembaga/koleksi", function (Request $request, Response $response, $args){
     $data = $request->getParsedBody();
+    $noRegistrasi  = $data["noRegistrasi"];
 
     // checking
     $dumbTable = '';
@@ -1243,118 +1776,22 @@ $app->post("/insert/lembaga/koleksi/{noRegistrasi}", function (Request $request,
         $status = 0;
     }
     
-    $sql = "INSERT INTO dplega_005_koleksi_temp".$dumbTable." (noRegistrasi, jenisKoleksi, judulKoleksi, deskripsi, createdBy, createdDate) VALUES
+    $sql = "INSERT INTO dplega_005_koleksi".$dumbTable." (noRegistrasi, jenisKoleksi, judulKoleksi, deskripsi, createdBy, createdDate) VALUES
         (
-            :noRegistrasi,
-            :judulKoleksi,
-            :jenisKoleksi,
-            :deskripsi,
-            :deskripsi,
-            :username,
+            '".$data["noRegistrasi"]."',
+            '".$data["judulKoleksi"]."',
+            '".$data["jenisKoleksi"]."',
+            '".$data["deskripsi"]."',
+            '".$data["username"]."',
             NOW()
         )
     ";
 
     $stmt = $this->db->prepare($sql);
-    if($stmt->execute($data))
+    if($stmt->execute())
        return $response->withJson(["status" => "success", "data" => "1"], 200);
     
     return $response->withJson(["status" => "failed", "data" => $data, "noReg" => $noRegistrasi], 200);
-});
-
-$app->post('/insert/lembaga/legalitas/', function(Request $request, Response $response, $args) {
-    
-    $uploadedFiles = $request->getUploadedFiles();
-    $data    = $request->getParsedBody();
-
-    // handle single input with single file upload
-    $uploadedFile = $uploadedFiles['file'];
-    if ($uploadedFile->getError() === UPLOAD_ERR_OK) {
-        
-        $extension = pathinfo($uploadedFile->getClientFilename(), PATHINFO_EXTENSION);
-        
-        // ubah nama file dengan id buku
-        $filename = sprintf('%s.%0.8s', $data["username"].'_'.$data["kodePersyaratan"].'_legalitas', $extension);
-        
-        $directory = $this->get('settings')['legalitas_directory'];
-        $uploadedFile->moveTo($directory . DIRECTORY_SEPARATOR . $filename);
-
-        // simpan nama file ke database
-        $sql = "INSERT INTO dplega_009_legalitas (
-            noRegistrasi,
-            kodePersyaratan,
-            noLegalitas,
-            tanggalLegalitas,
-            urlFile,
-            statusVerifikasi,
-            createdBy,
-            createdDate
-        ) VALUES (
-            :noRegistrasi,
-            :kodePersyaratan,
-            :noLegalitas,
-            :tanggalLegalitas,
-            :urlFile,
-            :statusVerifikasi,
-            :username,
-            NOW()
-        ) 
-        ";
-
-        $stmt = $this->db->prepare($sql);
-        $params = [
-            ":noRegistrasi" => $data['noRegistrasi'],
-            ":kodePersyaratan" => $data['kodePersyaratan'],
-            ":noLegalitas" => $data['noLegalitas'],
-            ":tanggalLegalitas" => $data['tanggalLegalitas'],
-            ":urlFile" => $filename,
-            ":statusVerifikasi" => '0',
-            ":username" => $data["username"],
-            ":urlGambar" => $filename
-        ];
-        
-        if($stmt->execute($params)){
-            // ambil base url dan gabungkan dengan file name untuk membentuk URL file
-            return $response->withJson(["status" => "success", "filename" => $filename], 200);
-        }
-        
-        return $response->withJson(["status" => "failed", "filename" => "0"], 200);
-    }
-});
-
-$app->post('/upload/lembaga/logo/', function(Request $request, Response $response, $args) {
-    
-    $uploadedFiles = $request->getUploadedFiles();
-    $credential    = $request->getParsedBody();
-
-    // handle single input with single file upload
-    $uploadedFile = $uploadedFiles['file'];
-    if ($uploadedFile->getError() === UPLOAD_ERR_OK) {
-        
-        $extension = pathinfo($uploadedFile->getClientFilename(), PATHINFO_EXTENSION);
-        
-        // ubah nama file dengan id buku
-        $filename = sprintf('%s.%0.8s', $credential["noRegistrasi"].'_logo', $extension);
-        
-        $directory = $this->get('settings')['logo_directory'];
-        $uploadedFile->moveTo($directory . DIRECTORY_SEPARATOR . $filename);
-
-        // simpan nama file ke database
-        $sql = "UPDATE dplega_910_user SET urlGambarLogo=:urlGambarLogo WHERE noRegistrasi=:noRegistrasi";
-        $stmt = $this->db->prepare($sql);
-        $params = [
-            ":noRegistrasi" => $credential["noRegistrasi"],
-            ":urlGambarLogo" => $filename
-        ];
-        
-        if($stmt->execute($params)){
-            // ambil base url dan gabungkan dengan file name untuk membentuk URL file
-            // $url = $request->getUri()->getBaseUrl().$filename;
-            return $response->withJson(["status" => "success", "filename" => $filename], 200);
-        }
-        
-        return $response->withJson(["status" => "failed", "filename" => "0"], 200);
-    }
 });
 
 
@@ -1980,4 +2417,193 @@ $app->post('/books/cover/{id}', function(Request $request, Response $response, $
         
         return $response->withJson(["status" => "failed", "data" => "0"], 200);
     }
+});
+
+
+
+// TABAH
+// ------------------------------------------------------------------------------------------------
+// ------------------------------------------------------------------------------------------------
+//  Temporary
+$app->get("/tabah/count/lembaga/", function (Request $request, Response $response, $args){
+    
+    $sql = "
+        SELECT 
+        b.kodeBentukLembaga,
+        b.namaBentukLembaga,
+        '0' as permohonanAwal,
+        '0' as permohonanPencairan,
+        '0' as pelaporan
+        FROM
+        dplega_200_bentuklembaga b
+        ORDER BY kodeBentukLembaga ASC
+    ";
+
+    $stmt = $this->db->prepare($sql);
+    $stmt->execute();
+    $result = $stmt->fetchAll();
+    return $response->withJson($result, 200);
+});
+
+$app->get("/tabah/search/{keyword}", function (Request $request, Response $response, $args){
+    $keyword   = $args["keyword"];
+
+    $sql = "
+        SELECT * FROM(
+            SELECT * FROM(
+                SELECT 
+                    'Lembaga' as grup,
+                    noRegistrasi as kolom_1,
+                    TRIM(LEADING ' ' FROM l.nama) as kolom_2,
+                    bl.namaBentukLembaga as kolom_3,
+                    COALESCE(`urlGambarLogo`, CONCAT_WS('', 'avatar-', RIGHT(noRegistrasi,1) ,'.jpg')) as kolom_4,
+                    '1' as kolom_5
+                FROM dplega_000_lembaga l
+                JOIN
+                    dplega_200_bentuklembaga bl ON l.kodeBentukLembaga = bl.kodeBentukLembaga
+                WHERE l.statusAktif = '1' AND (LOWER(l.nama) LIKE '%".strtolower($keyword)."%' OR LOWER(l.alamat) LIKE '%".strtolower($keyword)."%')
+                LIMIT 10
+            ) as lembaga_valid
+            
+            UNION
+            SELECT * FROM(
+                SELECT 
+                    'Lembaga' as grup,
+                    noRegistrasi as kolom_1,
+                    TRIM(LEADING ' ' FROM l.nama) as kolom_2,
+                    bl.namaBentukLembaga as kolom_3,
+                    COALESCE(`urlGambarLogo`, CONCAT_WS('', 'avatar-', RIGHT(noRegistrasi,1) ,'.jpg')) as kolom_4,
+                    '0' as kolom_5
+                FROM dplega_000_lembaga_temp l
+                JOIN
+                    dplega_200_bentuklembaga bl ON l.kodeBentukLembaga = bl.kodeBentukLembaga
+                WHERE l.statusAktif = '1' AND (LOWER(l.nama) LIKE '%".strtolower($keyword)."%' OR LOWER(l.alamat) LIKE '%".strtolower($keyword)."%')
+                LIMIT 10
+            ) as lembaga_ajuan
+        ) main_table
+    ";
+    
+    // $result = $sql;
+    $stmt = $this->db->prepare($sql);
+    $stmt->execute();
+    $result = $stmt->fetchAll();
+    return $response->withJson($result, 200);
+});
+
+$app->post("/tabah/auth/", function (Request $request, Response $response){
+
+    $credential = $request->getParsedBody();
+
+    $sql = "
+        SELECT 
+            l.noRegistrasi,
+            l.nama,
+            l.jabatan,
+            l.noTelp,
+            l.email,
+            l.username,
+            l.alamat,
+            l.noRt,
+            l.noRw,
+            l.kodeKelurahan,
+            l.kodeKecamatan,
+            l.kodeWilayah,
+            COALESCE(l.`urlGambar`, CONCAT_WS('', 'avatar-', RIGHT(l.idData,1) ,'.jpg')) as urlGambar, 
+            l.userLevel,
+            l.lingkupArea,
+            l.idBatasArea,
+            CONCAT_WS(' ', l.`alamat`, 'RT/RW', COALESCE(l.`noRt`, '-'), '/', COALESCE(l.`noRw`, '-'), `namaKelurahan`, `namaKecamatan`, `namaWilayah`, `namaProvinsi`) as alamatLengkap
+        FROM 
+            dplega_910_user l
+        LEFT JOIN
+            dplega_100_provinsi p ON l.kodeProvinsi = p.idData
+        LEFT JOIN
+            dplega_101_wilayah w ON l.kodeWilayah = w.idData
+        LEFT JOIN
+            dplega_102_kecamatan kc ON l.kodeKecamatan = kc.idData
+        LEFT JOIN
+            dplega_103_kelurahan kl ON l.kodeKelurahan = kl.idData
+        
+        WHERE username=:username AND password=:password AND statusActive = 1 AND l.userLevel != '2'";
+    $stmt = $this->db->prepare($sql);
+
+    $data = [
+        ":username" => $credential["username"],
+        ":password" => md5($credential["password"])
+    ];
+
+    if($stmt->execute($data)){
+        $result = $stmt->fetch();
+        
+        if($result['nama'] != ''){
+            $result['namaLembaga'] = "";
+            
+            if($result['userLevel'] == '1'){
+                $sql  = "SELECT nama FROM dplega_000_lembaga WHERE noRegistrasi = '".$result['noRegistrasi']."'";
+                $stmt = $this->db->prepare($sql);
+                $stmt->execute();
+                $res  = $stmt->fetch();
+
+                if($res['nama'] == ''){
+                    $sql  = "SELECT nama FROM dplega_000_lembaga_temp WHERE noRegistrasi = '".$result['noRegistrasi']."'";
+                    $stmt = $this->db->prepare($sql);
+                    $stmt->execute();
+                    $res  = $stmt->fetch();
+                }
+
+                $result['namaLembaga'] = $res['nama'];
+            }
+        }
+
+
+       return $response->withJson($result, 200);
+    }
+    
+    return $response->withJson(["status" => "failed", "data" => '0'], 200);
+});
+
+
+$app->get("/tabah/detail/lembaga/legalitas-form/{noRegistrasi}", function (Request $request, Response $response, $args){
+    $noRegistrasi  = $args["noRegistrasi"];
+
+    // checking
+    $dumbTable = '';
+    $kodeBentukLembaga = '';
+    $status = 'valid';
+    $sql  = "SELECT noRegistrasi, kodeBentukLembaga FROM dplega_000_lembaga WHERE noRegistrasi = '".$noRegistrasi."'";
+    $stmt = $this->db->prepare($sql);
+    $stmt->execute();
+    $res  = $stmt->fetch();
+
+    if($res['noRegistrasi'] == ''){
+        $dumbTable = '_temp';
+        $status = 'ajuan';
+
+        $sql  = "SELECT noRegistrasi, kodeBentukLembaga FROM dplega_000_lembaga_temp WHERE noRegistrasi = '".$noRegistrasi."'";
+        $stmt = $this->db->prepare($sql);
+        $stmt->execute();
+        $res  = $stmt->fetch();
+    }
+
+    $kodeBentukLembaga = $res['kodeBentukLembaga'];
+    
+    $sql = "
+        SELECT 
+            p.kodePersyaratan as kodePersyaratan,
+            p.namaPersyaratan as namaPersyaratan,
+            '' as noLegalitas,
+            '' as tanggalLegalitas,
+            '' as urlFile,
+            '' as statusVerifikasi
+        FROM
+            dplega_201_persyaratan p
+            
+        WHERE
+            p.kodeBentukLembaga = '".$kodeBentukLembaga."'
+    ";
+
+    $stmt = $this->db->prepare($sql);
+    $stmt->execute();
+    $result = $stmt->fetchAll();
+    return $response->withJson($result, 200);
 });
