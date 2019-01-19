@@ -584,7 +584,8 @@ $app->get("/detail/lembaga/{noRegistrasi}", function (Request $request, Response
             l.kodeWilayah,
             l.kodeKecamatan,
             l.kodeKelurahan,
-            l.kodeBidangGerak
+            l.kodeBidangGerak,
+            (SELECT username FROM dplega_910_user WHERE noRegistrasi = l.noRegistrasi LIMIT 1) as username
         FROM
             dplega_000_lembaga".$dumbTable." l
         JOIN
@@ -884,7 +885,7 @@ $app->get("/detail/lembaga/verifikasi/{noRegistrasi}", function (Request $reques
                     COALESCE((SELECT noLegalitas FROM dplega_009_legalitas".$dumbTable." l1 WHERE l1.noRegistrasi = '".$noRegistrasi."' AND l1.kodePersyaratan = p.kodePersyaratan), '') as noLegalitas,
                     COALESCE((SELECT tanggalLegalitas FROM dplega_009_legalitas".$dumbTable." l1 WHERE l1.noRegistrasi = '".$noRegistrasi."' AND l1.kodePersyaratan = p.kodePersyaratan), '') as tanggalLegalitas,
                     COALESCE((SELECT urlFile FROM dplega_009_legalitas".$dumbTable." l1 WHERE l1.noRegistrasi = '".$noRegistrasi."' AND l1.kodePersyaratan = p.kodePersyaratan), '') as urlFile,
-                    COALESCE((SELECT statusVerifikasi FROM dplega_009_legalitas".$dumbTable." l1 WHERE l1.noRegistrasi = '".$noRegistrasi."' AND l1.kodePersyaratan = p.kodePersyaratan), '') as statusVerifikasi
+                    COALESCE((SELECT IF(statusVerifikasi = 1, 'true', 'false') FROM dplega_009_legalitas".$dumbTable." l1 WHERE l1.noRegistrasi = '".$noRegistrasi."' AND l1.kodePersyaratan = p.kodePersyaratan), 'false') as statusVerifikasi
                 FROM
                     dplega_201_persyaratan p
                     
@@ -896,7 +897,7 @@ $app->get("/detail/lembaga/verifikasi/{noRegistrasi}", function (Request $reques
             
             SELECT * FROM (
                 SELECT 
-                    CONCAT_WS('', 'lainnya', v.kodeVerifikasi) as idGrup,
+                    'lainnya' as idGrup,
                     g.namaGrupVerifikasi as namaGrup,
                     '".$status."' as statusValid,
                     v.kodeVerifikasi as kode,
@@ -904,7 +905,7 @@ $app->get("/detail/lembaga/verifikasi/{noRegistrasi}", function (Request $reques
                     '' as noLegalitas,
                     '' as tanggalLegalitas,
                     '' as urlFile,
-                    COALESCE((SELECT status FROM dplega_012_verifikasi".$dumbTable." v1 WHERE v1.noRegistrasi = '".$noRegistrasi."' AND v1.kodeVerifikasi = v.kodeVerifikasi), '') as statusVerifikasi
+                    COALESCE((SELECT IF(status = 1, 'true', 'false') FROM dplega_012_verifikasi".$dumbTable." v1 WHERE v1.noRegistrasi = '".$noRegistrasi."' AND v1.kodeVerifikasi = v.kodeVerifikasi), 'false') as statusVerifikasi
                 FROM
                     dplega_221_verifikasi v
                 LEFT JOIN
@@ -1202,7 +1203,7 @@ $app->post("/insert/lembaga/", function (Request $request, Response $response, $
                 '".$idTemp."',
                 '".$data['nama']."',
                 'Penanggung jawab Lembaga',
-                '".$data['alamat']."',
+                '".$data['alamat_']."',
                 '".$data['rt']."',
                 '".$data['rw']."',
                 '".$data['kodeKelurahan']."',
@@ -1252,10 +1253,24 @@ $app->post("/insert/lembaga/", function (Request $request, Response $response, $
             $stmt->execute();
         }
 
-       return $response->withJson(["status" => "success", "data" => "1"], 200);
+        // translate
+        $sql =
+        "
+            SELECT namaBentukLembaga
+            FROM dplega_200_bentuklembaga
+            WHERE 
+                kodeBentukLembaga = '".$data['kodeBentukLembaga']."'
+            LIMIT 1
+        ";
+
+        $stmt = $this->db->prepare($sql);
+        $stmt->execute();
+        $res_  = $stmt->fetch();
+
+       return $response->withJson(["status" => "success", "data" => "1", "noRegistrasi" => $idTemp, "nama" => $data['nama'], "urlGambarLogo" => "avatar-".$idTemp[strlen($idTemp)-1].".jpg", "namaBentukLembaga" => $res_['namaBentukLembaga']], 200);
     }
 
-    return $response->withJson(["status" => "failed", "data" => $data, "noReg" => $idTemp, "sql" => $sql], 200);
+    return $response->withJson(["status" => "failed", "data" => "0"], 200);
 });
 
 $app->post('/upload/lembaga/logo/', function(Request $request, Response $response, $args) {
@@ -1792,6 +1807,91 @@ $app->post("/update/lembaga/koleksi", function (Request $request, Response $resp
        return $response->withJson(["status" => "success", "data" => "1"], 200);
     
     return $response->withJson(["status" => "failed", "data" => $data, "noReg" => $noRegistrasi], 200);
+});
+
+$app->post("/update/lembaga/verifikasi", function (Request $request, Response $response, $args){
+    $data             = $request->getParsedBody();
+    $noRegistrasi     = $data["noRegistrasi"];
+    $grup             = $data['grup'];
+    $kodePersyaratan  = $data['kodePersyaratan'];
+    $statusVerifikasi = $data['statusVerifikasi'];
+
+    // checking
+    $dumbTable = '';
+    $sql  = "SELECT noRegistrasi FROM dplega_000_lembaga WHERE noRegistrasi = '".$noRegistrasi."'";
+    $stmt = $this->db->prepare($sql);
+    $stmt->execute();
+    $res  = $stmt->fetch();
+
+    if($res['noRegistrasi'] == ''){
+        $dumbTable = '_temp';
+    }
+
+    //checking existing data each grup
+    if($grup == "legalitas"){
+        $sql  = "SELECT noRegistrasi FROM dplega_009_legalitas".$dumbTable." WHERE noRegistrasi = '".$noRegistrasi."' AND kodePersyaratan = '".$kodePersyaratan."'";
+    }else{
+        $sql  = "SELECT noRegistrasi FROM dplega_012_verifikasi".$dumbTable." WHERE noRegistrasi = '".$noRegistrasi."' AND kodeVerifikasi = '".$kodePersyaratan."'";
+    }
+
+    $stmt = $this->db->prepare($sql);
+    $stmt->execute();
+    $res  = $stmt->fetch();
+
+    if($res['noRegistrasi'] == ''){
+
+        //insert
+        if($grup == "legalitas"){
+            $sql = "INSERT INTO dplega_009_legalitas".$dumbTable." (noRegistrasi, kodePersyaratan, statusVerifikasi, createdBy, createdDate) VALUES
+            (
+                '".$noRegistrasi."',
+                '".$kodePersyaratan."',
+                '".$statusVerifikasi."',
+                '".$data["username"]."',
+                NOW()
+            )
+            ";
+        }else{
+            $sql = "INSERT INTO dplega_012_verifikasi".$dumbTable." (noRegistrasi, kodeVerifikasi, status, createdBy, createdDate) VALUES
+            (
+                '".$noRegistrasi."',
+                '".$kodePersyaratan."',
+                '".$statusVerifikasi."',
+                '".$data["username"]."',
+                NOW()
+            )
+            ";
+        }
+       
+    } else {
+        //update
+
+        if($grup == "legalitas"){
+            $sql = "
+            UPDATE dplega_009_legalitas".$dumbTable."
+            SET 
+                `statusVerifikasi`= '".$statusVerifikasi."',
+                `changedBy`= '".$data["username"]."',
+                `changedDate`= NOW()
+            WHERE noRegistrasi='".$noRegistrasi."' AND kodePersyaratan = '".$kodePersyaratan."'";
+        }else{
+            $sql = "
+            UPDATE dplega_012_verifikasi".$dumbTable."
+            SET 
+                `status`= '".$statusVerifikasi."',
+                `changedBy`= '".$data["username"]."',
+                `changedDate`= NOW()
+            WHERE noRegistrasi='".$noRegistrasi."' AND kodeVerifikasi = '".$kodePersyaratan."'";
+        }
+    }
+
+    $stmt = $this->db->prepare($sql);
+
+    if($stmt->execute()){
+        return $response->withJson(["status" => "success", "data" => "1"], 200);
+    }
+
+    return $response->withJson(["status" => "failed", "data" => $data, "noReg" => $idTemp], 200);
 });
 
 
